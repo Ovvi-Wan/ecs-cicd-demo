@@ -5,5 +5,5 @@ jobs:
     runs-on:
       - codebuild-test-github-integration-iac-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - run: echo "Current path $(pwd). Listing directory $(ls -lah) Hello World!"
-      - run: echo "listing directory $(ls -lah ../ecs-cicd-demo/)"
+      - run: echo "Current path $(pwd). Listing current directory $(ls -lah)"
+      - run: echo "listing previous directory $(ls -lah ../)"
