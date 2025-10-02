@@ -6,4 +6,4 @@ jobs:
       - codebuild-test-github-integration-iac-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - run: echo "Current path $(pwd). Listing current directory $(ls -lah)"
-      - run: echo "listing previous directory $(ls -lah ../)"
+      - run: cat test.txt
