@@ -2,8 +2,28 @@ name: Hello World
 on: [push]
 jobs:
   Hello-World-Job:
-    runs-on:
+    runs-on: 
       - codebuild-test-github-integration-iac-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
-      - run: echo "Current path $(pwd). Listing current directory $(ls -lah)"
-      - run: cat test.txt
+      - name: Checkout Repository
+        uses: actions/checkout@v4  # Use v4 for the latest features
+      - name: Print Environment Details
+        run: |
+          echo "Current path: $(pwd)"
+          echo "Listing current directory:"
+          ls -lah
+      - name: Display test.txt Contents
+      - name: Log Completion
+        run: echo "Job completed at $(date)"
+
+
+# name: Hello World
+# on: [push]
+# jobs:
+#   Hello-World-Job:
+#     runs-on:
+#       - codebuild-test-github-integration-iac-${{ github.run_id }}-${{ github.run_attempt }}
+#     steps:
+#       - run: echo "Current path $(pwd). Listing current directory $(ls -lah)"
+#       - run: cat test.txt
+
