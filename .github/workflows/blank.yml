@@ -6,3 +6,4 @@ jobs:
       - codebuild-test-github-integration-iac-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - run: echo "Hello World!"
+      - run: ls -lah
