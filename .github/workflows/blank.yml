@@ -12,7 +12,6 @@ jobs:
           echo "Current path: $(pwd)"
           echo "Listing current directory:"
           ls -lah
-      - name: Display test.txt Contents
       - name: Log Completion
         run: echo "Job completed at $(date)"
 
