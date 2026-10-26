@@ -1,0 +1,20 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+crash.log
+crash.*.log
+.env
+.env.*
+*.pem
+*.key
+__pycache__/
+# App .tfvars are non-secret configuration and must be committed.
+# Never put secret values in these files.
+
+# Generated plans and review metadata stay out of Git.
+terraform/plan-artifact/
+
+# Generated on each CI runner; exact provider versions are pinned in versions.tf.
+.terraform.lock.hcl

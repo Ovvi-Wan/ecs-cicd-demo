@@ -1,0 +1,18 @@
+# Generated Terraform files and credentials
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.plan
+.terraform.lock.hcl
+**/plan-artifact/
+**/tfplan
+**/plan.txt
+**/comment.md
+crash.log
+crash.*.log
+.env
+.env.*
+*.pem
+*.key
+__pycache__/

@@ -1,0 +1,280 @@
+# DISABLED TEMPLATE: follow the root README before removing .disabled.
+name: Terraform all apps with approval
+
+on:
+  # Expose a Run workflow button in GitHub Actions once this file exists on the default branch.
+  workflow_dispatch:
+    inputs:
+      run_all:
+        description: Plan all apps, then require approval before each apply
+        type: boolean
+        # The operator must select run_all=true to plan; false intentionally selects nothing.
+        default: false
+
+# This workflow plans all apps, then uses a separate approval-gated apply job per app.
+permissions:
+  contents: read
+
+jobs:
+  # Job 1 discovers app names before GitHub expands the matrix in Job 2.
+  detect-changes:
+    # Only plan a main-branch revision, even if another ref is selected in the dispatch UI.
+    if: github.ref == 'refs/heads/main'
+    # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
+    # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
+    runs-on:
+      - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
+      - manual-detect
+    timeout-minutes: 10
+    # Promote a step output to a job output so dependent jobs can read it through needs.
+    outputs:
+      apps: ${{ steps.apps.outputs.apps }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ecs-cicd-tutorial-infrastructure
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so merge-base and parent-commit comparisons are available.
+          fetch-depth: 0
+          # Do not leave the checkout token in the local Git configuration.
+          persist-credentials: false
+      - name: Select applications
+        id: apps
+        shell: bash
+        env:
+          RUN_ALL: ${{ inputs.run_all }}
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          # An unchecked checkbox produces an empty matrix and a successful no-op.
+          if [[ "$RUN_ALL" != "true" ]]; then
+            echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            echo 'run_all is false; no applications selected.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          # Enumerate immediate app directories, not nested folders or only recently changed apps.
+          find apps -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u > selected-apps.txt
+          # Validate every selected app before scheduling jobs. A deleted folder is not an automatic destroy.
+          while IFS= read -r app; do
+            [[ -n "$app" ]] || continue
+            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || ! -f "apps/$app/app.tfvars" ]]; then
+              echo "::error::Invalid or removed application '$app': expected apps/$app/app.tfvars. App removal requires a deliberate state/resource migration."
+              exit 1
+            fi
+          done < selected-apps.txt
+          # Convert newline-separated names to JSON, for example ["billing","orders"].
+          apps=$(jq -Rsc 'split("\n") | map(select(length > 0))' selected-apps.txt)
+          # GITHUB_OUTPUT passes data to later jobs; GITHUB_STEP_SUMMARY displays it to the reader.
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Selected applications: $apps" >> "$GITHUB_STEP_SUMMARY"
+
+  plan:
+    name: plan ${{ matrix.app }}
+    # Wait for discovery and use its app list to create one independent job per app.
+    needs: detect-changes
+    # Skip the matrix when discovery returned no apps. This guard is evaluated before matrix expansion.
+    if: needs.detect-changes.outputs.apps != '[]' && needs.detect-changes.outputs.apps != ''
+    # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
+    # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
+    runs-on:
+      - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
+      - plan-${{ matrix.app }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      # Let other apps finish even when one matrix job fails.
+      fail-fast: false
+      matrix:
+        # fromJSON converts the output string back into an array for GitHub Actions.
+        app: ${{ fromJSON(needs.detect-changes.outputs.apps) }}
+    # Use the same group across all Terraform workflows to serialize work on one app state.
+    # Different apps can run in parallel. Running jobs are not cancelled; pending jobs may be replaced.
+    # This is not a FIFO deployment queue. Terraform backend locking also protects the state.
+    concurrency:
+      group: terraform-${{ github.repository }}-${{ matrix.app }}
+      cancel-in-progress: false
+    env:
+      APP: ${{ matrix.app }}
+      # Disable interactive prompts and use automation-friendly Terraform output.
+      TF_INPUT: 'false'
+      TF_IN_AUTOMATION: 'true'
+      # App isolation comes from separate backend keys, so every job uses the default workspace.
+      TF_WORKSPACE: default
+      AWS_PAGER: ''
+    defaults:
+      run:
+        shell: bash
+        # Each app supplies variables to this shared Terraform root module.
+        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so merge-base and parent-commit comparisons are available.
+          fetch-depth: 0
+          # Do not leave the checkout token in the local Git configuration.
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Match required_version in terraform/versions.tf.
+          terraform_version: '1.16.4'
+          # Capture raw CLI output ourselves with tee instead of using action wrapper outputs.
+          terraform_wrapper: false
+      - name: Check target and initialize
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          [[ -f "../apps/$APP/app.tfvars" ]]
+          # Initialize providers and select this app's state in S3.
+          # Provider versions are pinned in versions.tf; init generates a temporary dependency lock file.
+          # Give each app its own state object in the shared S3 bucket.
+          terraform init -input=false -backend-config="key=infrastructure/$APP/terraform.tfstate"
+          # Check configuration consistency before attempting a plan or apply.
+          terraform validate -no-color
+      - name: Terraform plan
+        id: plan
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          # Use the app variables for this app; retry acquiring the state lock for up to one minute.
+          # Save the executable plan and capture stdout/stderr for inspection. pipefail preserves failures.
+          terraform plan -input=false -no-color -lock-timeout=1m \
+            -var-file="../apps/$APP/app.tfvars" -var="application=$APP" \
+            -out=tfplan 2>&1 | tee plan.txt
+      - name: Package the plan for approval
+        # This step runs only after a successful plan. Failed plans cannot be deployed.
+        run: |
+          set -euo pipefail
+          mkdir -p plan-artifact
+          cp tfplan plan.txt plan-artifact/
+          # Bind the plan to an app, commit and workflow attempt, and record when it was made.
+          jq -n --arg app "$APP" --arg sha "$GITHUB_SHA" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg digest "$(sha256sum tfplan | cut -d ' ' -f1)" \
+            --argjson created "$(date +%s)" \
+            '{app:$app, sha:$sha, run_id:$run, attempt:$attempt, sha256:$digest, created_at:$created}' \
+            > plan-artifact/metadata.json
+          {
+            echo "### Review plan for $APP"
+            echo "Commit: $GITHUB_SHA"
+            echo "Plan run ID: $GITHUB_RUN_ID; attempt: $GITHUB_RUN_ATTEMPT"
+            echo "Download the plan artifact and review plan.txt before approving."
+            echo "When deployments are enabled, use Review deployments on this run and approve the $APP environment."
+            echo "On GitHub Free this approval feature works only for public repositories."
+            echo "Plans expire after 24 hours. A newer main commit requires a new plan."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload this app's saved plan
+        uses: actions/upload-artifact@v4
+        with:
+          # The attempt number prevents a rerun from silently replacing the plan being reviewed.
+          name: plan-${{ matrix.app }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ecs-cicd-tutorial-infrastructure/terraform/plan-artifact/
+          if-no-files-found: error
+          retention-days: 1
+
+  apply:
+    name: Apply ${{ matrix.app }} after approval
+    needs: [detect-changes, plan]
+    # On GitHub Free, required-reviewer approvals work ONLY in PUBLIC repositories.
+    # Configure required reviewers on every app environment BEFORE enabling deployments.
+    # Keep ENABLE_DEPLOYMENTS unset until setup is complete; a public repo alone is not approval.
+    if: >-
+      github.event.repository.private == false &&
+      vars.ENABLE_DEPLOYMENTS == 'true' &&
+      needs.detect-changes.outputs.apps != '[]' &&
+      needs.detect-changes.outputs.apps != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJSON(needs.detect-changes.outputs.apps) }}
+    # This is GitHub's built-in approval gate, not a third-party action.
+    # Each app has its own environment (billing, orders, etc.) and approval decision.
+    # GitHub waits for approval BEFORE sending this job to a CodeBuild runner.
+    environment:
+      name: ${{ matrix.app }}
+      url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    runs-on:
+      - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
+      - apply-${{ matrix.app }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: terraform-${{ github.repository }}-${{ matrix.app }}
+      cancel-in-progress: false
+    env:
+      APP: ${{ matrix.app }}
+      PLAN_RUN_ID: ${{ github.run_id }}
+      PLAN_ATTEMPT: ${{ github.run_attempt }}
+      PLAN_SHA: ${{ github.sha }}
+      GH_TOKEN: ${{ github.token }}
+      GH_HOST: ${{ github.server_url }}
+      TF_INPUT: 'false'
+      TF_IN_AUTOMATION: 'true'
+      TF_WORKSPACE: default
+      AWS_PAGER: ''
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the commit that produced the reviewed plan
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: '1.16.4'
+          terraform_wrapper: false
+      - name: Download this app's saved plan from this run
+        uses: actions/download-artifact@v4
+        with:
+          name: plan-${{ matrix.app }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/approved-plan
+      - name: Verify the reviewed plan
+        run: |
+          set -euo pipefail
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          cd "$RUNNER_TEMP/approved-plan"
+          # Check identity, age and file integrity before passing the plan to Terraform.
+          jq -e --arg app "$APP" --arg sha "$PLAN_SHA" --arg run "$PLAN_RUN_ID" \
+            --arg attempt "$PLAN_ATTEMPT" --arg digest "$(sha256sum tfplan | cut -d ' ' -f1)" \
+            --argjson now "$(date +%s)" '
+            .app == $app and .sha == $sha and .run_id == $run and .attempt == $attempt and
+            .sha256 == $digest and .created_at <= $now and ($now - .created_at) < 86400
+          ' metadata.json >/dev/null
+
+      - name: Initialize the same app backend
+        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        run: |
+          set -euo pipefail
+          [[ -f "../apps/$APP/app.tfvars" ]]
+          terraform init -input=false \
+            -backend-config="key=infrastructure/$APP/terraform.tfstate"
+          terraform validate -no-color
+
+      - name: Apply the reviewed plan
+        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        env:
+          PLAN_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export GH_HOST="${GH_HOST#https://}"
+          # Recheck freshness immediately before applying, including time spent initializing.
+          latest_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$latest_sha" != "$PLAN_SHA" ]]; then
+            echo "::error::main changed after this plan. Generate and review a new plan."
+            exit 1
+          fi
+          jq -e --argjson now "$(date +%s)" \
+            '.created_at <= $now and ($now - .created_at) < 86400' \
+            "$RUNNER_TEMP/approved-plan/metadata.json" >/dev/null
+
+          # No new plan is generated here. The environment approval authorizes this exact saved plan.
+          # If Terraform reports stale state, create a new plan and obtain a new approval.
+          terraform apply -input=false -no-color -lock-timeout=1m "$RUNNER_TEMP/approved-plan/tfplan"
+          echo "Deployed $APP from plan run $PLAN_RUN_ID, attempt $PLAN_ATTEMPT, commit $PLAN_SHA." >> "$GITHUB_STEP_SUMMARY"

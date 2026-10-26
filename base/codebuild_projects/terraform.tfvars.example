@@ -1,0 +1,9 @@
+aws_account_id        = "REPLACE_WITH_12_DIGIT_ACCOUNT_ID"
+aws_region            = "us-east-1"
+project_prefix        = "ecs-cicd-tutorial"
+github_connection_arn = "arn:aws:codeconnections:us-east-1:123456789012:connection/REPLACE_WITH_CONNECTION_ID"
+runner_projects = {
+  infrastructure = {
+    repository = "Ovidiu-Adrian/ecs-cicd-tutorial-infrastructure"
+  }
+}

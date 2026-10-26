@@ -1,0 +1,190 @@
+# DISABLED TEMPLATE: follow the root README before removing .disabled.
+name: Terraform pr
+
+on:
+  # Preview changes when a PR targets main. synchronize means new commits were pushed to the PR.
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    # App changes select affected apps; shared Terraform changes select every app.
+    paths: ['ecs-cicd-tutorial-infrastructure/apps/**', 'ecs-cicd-tutorial-infrastructure/terraform/**']
+
+# The default GitHub token can read source code. Only the PR comment job adds write access.
+permissions:
+  contents: read
+
+jobs:
+  # Job 1 discovers app names before GitHub expands the matrix in Job 2.
+  detect-changes:
+    # These runners have AWS access, so only trusted same-repository PRs are allowed here.
+    # Fork and Dependabot PRs are skipped; do not use pull_request_target to execute untrusted PR code.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
+    # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
+    runs-on:
+      - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
+      - pr-detect
+    timeout-minutes: 10
+    # Promote a step output to a job output so dependent jobs can read it through needs.
+    outputs:
+      apps: ${{ steps.apps.outputs.apps }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ecs-cicd-tutorial-infrastructure
+    steps:
+      # On pull_request, the default checkout is GitHub's test merge revision.
+      # Discovery uses the PR head/base SHAs, while Terraform plans the checked-out merge result.
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so merge-base and parent-commit comparisons are available.
+          fetch-depth: 0
+          # Do not leave the checkout token in the local Git configuration.
+          persist-credentials: false
+      - name: Select applications
+        id: apps
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          # Three dots compare the common ancestor (merge base) with the PR head.
+          # --no-renames exposes both paths of a rename so both affected app names are considered.
+          git diff --relative --name-only --no-renames "$BASE_SHA...$HEAD_SHA" -- apps/ terraform/ > changed-files.txt
+          # Shared Terraform changes affect all apps, even without app.tfvars edits.
+          if grep -q '^terraform/' changed-files.txt; then
+            find apps -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u > selected-apps.txt
+          else
+            awk -F/ '$1 == "apps" && NF >= 3 {print $2}' changed-files.txt | sort -u > selected-apps.txt
+          fi
+          # Validate every selected app before scheduling jobs. A deleted folder is not an automatic destroy.
+          while IFS= read -r app; do
+            [[ -n "$app" ]] || continue
+            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || ! -f "apps/$app/app.tfvars" ]]; then
+              echo "::error::Invalid or removed application '$app': expected apps/$app/app.tfvars. App removal requires a deliberate state/resource migration."
+              exit 1
+            fi
+          done < selected-apps.txt
+          # Convert newline-separated names to JSON, for example ["billing","orders"].
+          apps=$(jq -Rsc 'split("\n") | map(select(length > 0))' selected-apps.txt)
+          # GITHUB_OUTPUT passes data to later jobs; GITHUB_STEP_SUMMARY displays it to the reader.
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Selected applications: $apps" >> "$GITHUB_STEP_SUMMARY"
+
+  plan:
+    name: plan ${{ matrix.app }}
+    # Wait for discovery and use its app list to create one independent job per app.
+    needs: detect-changes
+    # Skip the matrix when discovery returned no apps. This guard is evaluated before matrix expansion.
+    if: needs.detect-changes.outputs.apps != '[]' && needs.detect-changes.outputs.apps != ''
+    # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
+    # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
+    runs-on:
+      - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
+      - pr-${{ matrix.app }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Needed to create the plan comment using GITHUB_TOKEN.
+      pull-requests: write
+    strategy:
+      # Let other apps finish even when one matrix job fails.
+      fail-fast: false
+      matrix:
+        # fromJSON converts the output string back into an array for GitHub Actions.
+        app: ${{ fromJSON(needs.detect-changes.outputs.apps) }}
+    # Use the same group across all Terraform workflows to serialize work on one app state.
+    # Different apps can run in parallel. Running jobs are not cancelled; pending jobs may be replaced.
+    # This is not a FIFO deployment queue. Terraform backend locking also protects the state.
+    concurrency:
+      group: terraform-${{ github.repository }}-${{ matrix.app }}
+      cancel-in-progress: false
+    env:
+      APP: ${{ matrix.app }}
+      # Disable interactive prompts and use automation-friendly Terraform output.
+      TF_INPUT: 'false'
+      TF_IN_AUTOMATION: 'true'
+      # App isolation comes from separate backend keys, so every job uses the default workspace.
+      TF_WORKSPACE: default
+      AWS_PAGER: ''
+    defaults:
+      run:
+        shell: bash
+        # Each app supplies variables to this shared Terraform root module.
+        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+    steps:
+      # On pull_request, the default checkout is GitHub's test merge revision.
+      # Discovery uses the PR head/base SHAs, while Terraform plans the checked-out merge result.
+      - uses: actions/checkout@v4
+        with:
+          # Fetch full history so merge-base and parent-commit comparisons are available.
+          fetch-depth: 0
+          # Do not leave the checkout token in the local Git configuration.
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # Match required_version in terraform/versions.tf.
+          terraform_version: '1.16.4'
+          # Capture raw CLI output ourselves with tee instead of using action wrapper outputs.
+          terraform_wrapper: false
+      - name: Check target and initialize
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          [[ -f "../apps/$APP/app.tfvars" ]]
+          # Initialize providers and select this app's state in S3.
+          # Provider versions are pinned in versions.tf; init generates a temporary dependency lock file.
+          # Give each app its own state object in the shared S3 bucket.
+          terraform init -input=false -backend-config="key=infrastructure/$APP/terraform.tfstate"
+          # Check configuration consistency before attempting a plan or apply.
+          terraform validate -no-color
+      - name: Terraform plan
+        id: plan
+        run: |
+          # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
+          set -euo pipefail
+          # Use the app variables for this app; retry acquiring the state lock for up to one minute.
+          # Save the executable plan and capture stdout/stderr for inspection. pipefail preserves failures.
+          terraform plan -input=false -no-color -lock-timeout=1m \
+            -var-file="../apps/$APP/app.tfvars" -var="application=$APP" \
+            -out=tfplan 2>&1 | tee plan.txt
+      - name: Post plan on the PR
+        # Report errors too. Posting a comment does not clear a failed plan's status.
+        if: always()
+        env:
+          # GitHub CLI authenticates with this job's token, not the runner's AWS credentials.
+          GH_TOKEN: ${{ github.token }}
+          GH_HOST: ${{ github.server_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RESULT: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          # The CodeBuild image must include GitHub CLI (gh).
+          command -v gh >/dev/null || { echo "::error::Install GitHub CLI (gh) in the CodeBuild runner image."; exit 1; }
+          export GH_HOST="${GH_HOST#https://}"
+
+          # This run step inherits working-directory: ecs-cicd-tutorial-infrastructure/terraform, where plan.txt was saved.
+          if [[ ! -f plan.txt ]]; then
+            echo "No plan output. Check initialization and validation in the workflow logs." > plan.txt
+          fi
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+          # Build a readable comment file. Bound its size and escape HTML in the plan output.
+          {
+            echo "### Terraform plan: $APP ($RESULT)"
+            echo "Revision: $GITHUB_SHA"
+            echo
+            echo '<details><summary>Plan output (first 8,000 characters)</summary>'
+            echo
+            echo '<pre>'
+            jq -Rrs '.[0:8000] | @html' plan.txt
+            echo '</pre></details>'
+            echo
+            echo "[Full output and errors in workflow logs]($run_url)"
+          } > comment.md
+
+          # Add a new comment for this app on every run; no comment-search/update logic needed.
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file comment.md
