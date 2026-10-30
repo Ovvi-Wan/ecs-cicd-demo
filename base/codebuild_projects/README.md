@@ -38,3 +38,15 @@ they are not logging-only. Review main.tf for authoritative permissions. The exi
 LIFECYCLE variable is unused by the one-configuration-per-app workflows.
 No Docker-based approval action is used. The backend bucket must already exist.
 See [root setup](../../README.md) before activating workflow templates.
+
+## Fargate application infrastructure additions
+
+Apply the current base configuration before enabling the app infrastructure jobs.
+The infrastructure runner now needs SNS topic/policy management and IAM permissions
+boundary updates. Application delivery can register ECS task definitions, update
+project-prefixed services and pass project task roles. CodeBuild build timeout is
+35 minutes, allowing the 30-minute workflow job to finish or time out first.
+The infrastructure repository mapping is Ovvi-Wan/ecs-cicd-demo; project keys/names
+are unchanged. The application repository mapping remains separate.
+No SSM Parameter Store permissions are added. Optional customer KMS configurations
+require explicit runner/key-policy grants scoped to the chosen keys.

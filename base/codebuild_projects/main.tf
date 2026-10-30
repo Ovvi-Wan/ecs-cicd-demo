@@ -57,7 +57,7 @@ resource "aws_codebuild_project" "runner" {
   name               = "${var.project_prefix}-${each.key}"
   description        = "Ephemeral GitHub Actions runner for ${each.value.repository}"
   service_role       = aws_iam_role.runner[each.key].arn
-  build_timeout      = 15
+  build_timeout      = 35
   queued_timeout     = 15
   project_visibility = "PRIVATE"
 
@@ -98,7 +98,7 @@ resource "aws_codebuild_project" "runner" {
     }
   }
 
-  depends_on = [aws_iam_role_policy.runner, aws_iam_role_policy.infrastructure, aws_iam_role_policy.image_build]
+  depends_on = [aws_iam_role_policy.runner, aws_iam_role_policy.infrastructure, aws_iam_role_policy.image_build, aws_iam_role_policy.application_deployment]
 }
 
 resource "aws_codebuild_webhook" "runner" {
@@ -139,6 +139,8 @@ resource "aws_iam_role_policy" "infrastructure" {
         Action = [
           "ecs:*", "elasticloadbalancing:*", "ecr:*",
           "application-autoscaling:*", "logs:*", "secretsmanager:*",
+          "sns:CreateTopic", "sns:DeleteTopic", "sns:GetTopicAttributes", "sns:SetTopicAttributes",
+          "sns:ListTagsForResource", "sns:TagResource", "sns:UntagResource",
           "cloudwatch:DescribeAlarms", "cloudwatch:DescribeAlarmsForMetric",
           "cloudwatch:PutMetricAlarm", "cloudwatch:DeleteAlarms",
           "cloudwatch:EnableAlarmActions", "cloudwatch:DisableAlarmActions",
@@ -175,6 +177,7 @@ resource "aws_iam_role_policy" "infrastructure" {
         Effect = "Allow"
         Action = [
           "iam:CreateRole", "iam:GetRole", "iam:UpdateRole", "iam:DeleteRole",
+          "iam:PutRolePermissionsBoundary", "iam:DeleteRolePermissionsBoundary",
           "iam:UpdateAssumeRolePolicy", "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
           "iam:AttachRolePolicy", "iam:DetachRolePolicy", "iam:ListAttachedRolePolicies",
           "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies",
@@ -245,6 +248,42 @@ resource "aws_iam_role_policy" "infrastructure" {
         Effect   = "Allow"
         Action   = "s3:DeleteObject"
         Resource = "${local.state_bucket_arn}/*.tflock"
+      }
+    ]
+  })
+}
+
+# Application delivery registers revisions and updates existing services without Terraform.
+resource "aws_iam_role_policy" "application_deployment" {
+  name = "application-ecs-deployment"
+  role = aws_iam_role.runner["application"].id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "RegisterAndInspectTaskDefinitions"
+        Effect   = "Allow"
+        Action   = ["ecs:RegisterTaskDefinition", "ecs:DescribeTaskDefinition"]
+        Resource = "*"
+      },
+      {
+        Sid      = "DeployProjectServices"
+        Effect   = "Allow"
+        Action   = ["ecs:UpdateService", "ecs:DescribeServices"]
+        Resource = "arn:${data.aws_partition.current.partition}:ecs:${var.aws_region}:${var.aws_account_id}:service/*/${var.project_prefix}-*"
+      },
+      {
+        Sid      = "InspectDeploymentTasks"
+        Effect   = "Allow"
+        Action   = ["ecs:ListTasks", "ecs:DescribeTasks"]
+        Resource = "*"
+      },
+      {
+        Sid       = "PassProjectTaskRoles"
+        Effect    = "Allow"
+        Action    = "iam:PassRole"
+        Resource  = local.project_role_arn
+        Condition = { StringEquals = { "iam:PassedToService" = "ecs-tasks.amazonaws.com" } }
       }
     ]
   })

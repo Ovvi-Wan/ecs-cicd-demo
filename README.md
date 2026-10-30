@@ -1,61 +1,47 @@
 # ECS CI/CD demo
 
-One training repository for the AWS foundation and per-app infrastructure pipelines.
-
-## Automation is disabled
-
-All root workflow templates end in `.yml.disabled`. GitHub does not register them,
-so merging this setup cannot start a GitHub Actions or CodeBuild runner. The old
-push-triggered blank.yml has been removed. Only remove `.disabled` when ready.
+Reusable per-application AWS ECS Fargate infrastructure with separate Terraform
+state and approval for each application. Application builds/deployments are a
+separate pipeline: infrastructure starts a public HTTP placeholder, then image
+releases register task definitions and update the existing service.
 
 ## Layout
 
-- [base/](base/README.md): standalone state-bucket, CodeBuild and network roots.
-- [ecs-cicd-tutorial-infrastructure/](ecs-cicd-tutorial-infrastructure/README.md):
-  apps/billing/app.tfvars, apps/orders/app.tfvars and the shared terraform/ root.
-- [.github/workflows/](.github/workflows/README.md): disabled PR, post-merge and
-  manual all-app workflow templates at the repository root.
+- [base/](base/README.md): state bucket, CodeBuild runner roles/projects, VPC and optional shared ECS cluster.
+- [terraform-infrastructure/](terraform-infrastructure/README.md): shared Terraform root, modules and per-app inputs.
+- [app-example](terraform-infrastructure/apps/app-example/app.tfvars): every supported option with comments and IAM policy examples. Never selected by workflows.
+- [.github/workflows/](.github/workflows/README.md): disabled PR, post-merge and manual all-app workflows.
 
-The existing infrastructure folder name is retained. This checkout does not yet
-contain application source, a Dockerfile, or an application build/deploy workflow.
-The application Terraform root currently contains locals/outputs, not ECS resources.
+The previous misspelled terraform-infrastucture directory was renamed. State keys
+remain infrastructure/<app>/terraform.tfstate. CodeBuild runner project names
+remain unchanged, so existing runner labels still work.
 
-## Pipelines after activation
+## Before enabling automation
 
-1. terraform-pr.yml plans changed apps on PRs to main and posts output as comments.
-2. terraform-plan.yml generates fresh plans after main pushes, then waits for
-   separate environment approval before applying each app's saved plan.
-3. terraform-manual.yml plans every app when run_all=true and uses the same approval
-   gates. False is a no-op.
+All workflow templates still end in .yml.disabled. No AWS apply was run as part of
+this implementation. Removing the suffix activates workflows; review setup first.
 
-Changes to shared infrastructure Terraform code select ALL apps. Base-only changes
-are handled separately; the app workflows do not bootstrap or deploy base modules.
+1. Verify/provision the state bucket and network foundation. If necessary create
+   [base/ecs_cluster](base/ecs_cluster/README.md) once; apps only read that cluster.
+2. Review/apply base/codebuild_projects changes separately: infrastructure SNS and
+   IAM-boundary permissions, application ECS deployment permissions, 35-minute
+   runner timeout, and infrastructure repository mapping to Ovvi-Wan/ecs-cicd-demo.
+   Authorize that repository on the existing CodeConnection. The separate
+   application repository mapping is retained; change it if your app sources move.
+3. Review billing/orders tfvars. Defaults select the base dev VPC by Name and
+   subnets by Tier tags, and cluster ecs-cicd-tutorial-dev. No invented VPC IDs.
+4. Configure GitHub environments named billing and orders with required reviewers
+   and main-only deployment branches. The existing workflow templates retain their
+   public-repository approval guard. Review GitHub plan support for your repository
+   before activation. Do not create an app-example environment.
+5. Runner tools: bash, git, jq, AWS CLI, gh, GNU date and sha256sum. Workflows install
+   Terraform 1.16.4 with AWS provider 6.61.0. Run formatting and validation as documented in the infrastructure guide.
+6. Remove .disabled when ready to run plans. Leave ENABLE_DEPLOYMENTS unset for
+   plans only; set it to true only after approval environments are configured.
 
-## Before enabling
+App policy files and tfvars must contain no secret values. Saved binary plans and
+Terraform outputs may contain environment variables: only put
+non-secret values there. Plan artifacts expire after one day. No SSM parameters, subscriptions or Container Insights are created.
 
-1. Verify or provision the base modules using an approved bootstrap execution
-   environment. No workstation Terraform execution is required. See base/README.md.
-2. Authorize CodeConnections for Ovvi-Wan/ecs-cicd-demo. Update the repository fields
-   in base/codebuild_projects/terraform.tfvars, which still reference the old split
-   repositories. Review/apply that base change separately. Keep runner project keys
-   stable so existing project identities and workflow runner labels remain valid.
-3. On GitHub Free, required-reviewer environment approvals work ONLY in PUBLIC
-   repositories. Create billing and orders environments with Required reviewers and
-   deployment branches restricted to main. Configure each new app environment before
-   adding that app. Naming an environment in YAML does not configure reviewers.
-4. Confirm the runner has bash, git, jq, AWS CLI, gh, GNU date and sha256sum. The
-   templates install Terraform 1.16.4. CodeBuild currently has a 15-minute build
-   timeout while the workflows allow 30; align these limits before longer jobs.
-5. Review artifact visibility before publishing real data: saved binary plans may
-   contain secrets even if plan.txt redacts them. Public tutorial artifacts must
-   contain only non-sensitive example data.
-6. Remove .disabled from the three workflow filenames and commit them when ready
-   to allow planning runners. Leave ENABLE_DEPLOYMENTS unset for plans only.
-7. Once reviewer protection is configured, set the Actions repository variable
-   ENABLE_DEPLOYMENTS=true. Review the plan artifact, then use Review deployments >
-   Approve and deploy for the relevant app. No apply runner waits during approval.
-
-State keys and AWS resources are unchanged by this repository reorganization.
-Generated state, plans, provider caches and credentials must stay out of Git.
-The root .gitignore excludes them. Existing tracked generated files, if any, need
-explicit removal from Git; ignore rules do not untrack files already committed.
+See the [infrastructure guide](terraform-infrastructure/README.md) for onboarding,
+outputs, infrastructure scope, scaling ownership and validation commands.

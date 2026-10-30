@@ -32,7 +32,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ecs-cicd-tutorial-infrastructure
+        working-directory: terraform-infrastructure
     steps:
       - uses: actions/checkout@v4
         with:
@@ -54,13 +54,12 @@ jobs:
             echo 'run_all is false; no applications selected.' >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          # Enumerate immediate app directories, not nested folders or only recently changed apps.
-          find apps -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u > selected-apps.txt
-          # Validate every selected app before scheduling jobs. A deleted folder is not an automatic destroy.
+          find apps -mindepth 1 -maxdepth 1 -type d ! -name app-example -printf '%f\n' | sort -u > selected-apps.txt
+          # Reject invalid/deleted apps; documentation-only app-example is never deployed.
           while IFS= read -r app; do
             [[ -n "$app" ]] || continue
-            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || ! -f "apps/$app/app.tfvars" ]]; then
-              echo "::error::Invalid or removed application '$app': expected apps/$app/app.tfvars. App removal requires a deliberate state/resource migration."
+            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || "$app" == "app-example" || ! -f "apps/$app/app.tfvars" ]]; then
+              echo "::error::Invalid or removed application '$app'; decommission resources deliberately."
               exit 1
             fi
           done < selected-apps.txt
@@ -108,7 +107,7 @@ jobs:
       run:
         shell: bash
         # Each app supplies variables to this shared Terraform root module.
-        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        working-directory: terraform-infrastructure/terraform
     steps:
       - uses: actions/checkout@v4
         with:
@@ -126,13 +125,16 @@ jobs:
         run: |
           # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
           set -euo pipefail
-          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" && "$APP" != "app-example" ]]
           [[ -f "../apps/$APP/app.tfvars" ]]
           # Initialize providers and select this app's state in S3.
           # Provider versions are pinned in versions.tf; init generates a temporary dependency lock file.
           # Give each app its own state object in the shared S3 bucket.
           terraform init -input=false -backend-config="key=infrastructure/$APP/terraform.tfstate"
           # Check configuration consistency before attempting a plan or apply.
+          terraform fmt -check -recursive .
+          terraform fmt -check "../apps/$APP"
+          [[ "$(terraform workspace show)" == "default" ]] || { echo "::error::Use the default workspace with a per-app backend key."; exit 1; }
           terraform validate -no-color
       - name: Terraform plan
         id: plan
@@ -171,7 +173,7 @@ jobs:
         with:
           # The attempt number prevents a rerun from silently replacing the plan being reviewed.
           name: plan-${{ matrix.app }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ecs-cicd-tutorial-infrastructure/terraform/plan-artifact/
+          path: terraform-infrastructure/terraform/plan-artifact/
           if-no-files-found: error
           retention-days: 1
 
@@ -238,7 +240,7 @@ jobs:
       - name: Verify the reviewed plan
         run: |
           set -euo pipefail
-          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" && "$APP" != "app-example" ]]
           cd "$RUNNER_TEMP/approved-plan"
           # Check identity, age and file integrity before passing the plan to Terraform.
           jq -e --arg app "$APP" --arg sha "$PLAN_SHA" --arg run "$PLAN_RUN_ID" \
@@ -249,16 +251,19 @@ jobs:
           ' metadata.json >/dev/null
 
       - name: Initialize the same app backend
-        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        working-directory: terraform-infrastructure/terraform
         run: |
           set -euo pipefail
           [[ -f "../apps/$APP/app.tfvars" ]]
           terraform init -input=false \
             -backend-config="key=infrastructure/$APP/terraform.tfstate"
+          terraform fmt -check -recursive .
+          terraform fmt -check "../apps/$APP"
+          [[ "$(terraform workspace show)" == "default" ]] || { echo "::error::Use the default workspace with a per-app backend key."; exit 1; }
           terraform validate -no-color
 
       - name: Apply the reviewed plan
-        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        working-directory: terraform-infrastructure/terraform
         env:
           PLAN_SHA: ${{ github.sha }}
         run: |

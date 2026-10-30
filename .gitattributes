@@ -1,0 +1,5 @@
+# Keep scripts executable by bash on Linux even when checked out on Windows.
+*.sh text eol=lf
+*.tf text eol=lf
+*.tfvars text eol=lf
+*.tftest.hcl text eol=lf

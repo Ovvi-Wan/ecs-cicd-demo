@@ -1,6 +1,6 @@
 # Base infrastructure
 
-Three standalone Terraform roots in the monorepo. They are not child modules of
+Four standalone Terraform roots in the monorepo. They are not child modules of
 application infrastructure, and the app workflows do not apply them.
 
 | Root | Responsibility | Existing backend key |
@@ -24,9 +24,17 @@ by another state. The network's dev setting is retained; app pipelines have one
 configuration per app.
 
 For the monorepo, authorize CodeConnections for Ovvi-Wan/ecs-cicd-demo and update
-old runner repository mappings before activating CI. Source configuration remains
-unchanged in this documentation/workflow update; no Terraform apply is performed.
+old runner repository mappings before activating CI. The infrastructure repository mapping is updated in source; no Terraform apply is performed.
 
 Read [state bucket](s3_state_bucket/README.md), [CodeBuild](codebuild_projects/README.md),
 [network](network_infrastructure/README.md), and [root setup](../README.md).
 Keep state, saved plans, caches and credentials out of Git.
+
+## Shared ECS cluster
+
+[ecs_cluster](ecs_cluster/README.md) is a fourth optional foundation root. Its state
+key is base/ecs_cluster/dev/terraform.tfstate. Create once if no suitable shared
+cluster exists, before deploying apps. Container Insights is disabled. App jobs
+use a cluster data source and never create this shared resource. The infrastructure
+CodeBuild repository mapping is now updated to the monorepo in source; applying
+that base change and authorizing CodeConnections are separate bootstrap steps.

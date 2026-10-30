@@ -7,7 +7,7 @@ on:
     branches: [main]
     types: [opened, synchronize, reopened]
     # App changes select affected apps; shared Terraform changes select every app.
-    paths: ['ecs-cicd-tutorial-infrastructure/apps/**', 'ecs-cicd-tutorial-infrastructure/terraform/**']
+    paths: ['terraform-infrastructure/apps/**', 'terraform-infrastructure/terraform/**', '!terraform-infrastructure/apps/app-example/**']
 
 # The default GitHub token can read source code. Only the PR comment job adds write access.
 permissions:
@@ -31,7 +31,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: ecs-cicd-tutorial-infrastructure
+        working-directory: terraform-infrastructure
     steps:
       # On pull_request, the default checkout is GitHub's test merge revision.
       # Discovery uses the PR head/base SHAs, while Terraform plans the checked-out merge result.
@@ -53,17 +53,16 @@ jobs:
           # Three dots compare the common ancestor (merge base) with the PR head.
           # --no-renames exposes both paths of a rename so both affected app names are considered.
           git diff --relative --name-only --no-renames "$BASE_SHA...$HEAD_SHA" -- apps/ terraform/ > changed-files.txt
-          # Shared Terraform changes affect all apps, even without app.tfvars edits.
           if grep -q '^terraform/' changed-files.txt; then
-            find apps -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -u > selected-apps.txt
+            find apps -mindepth 1 -maxdepth 1 -type d ! -name app-example -printf '%f\n' | sort -u > selected-apps.txt
           else
-            awk -F/ '$1 == "apps" && NF >= 3 {print $2}' changed-files.txt | sort -u > selected-apps.txt
+            awk -F/ '$1 == "apps" && NF >= 3 && $2 != "app-example" {print $2}' changed-files.txt | sort -u > selected-apps.txt
           fi
-          # Validate every selected app before scheduling jobs. A deleted folder is not an automatic destroy.
+          # Reject invalid/deleted apps; documentation-only app-example is never deployed.
           while IFS= read -r app; do
             [[ -n "$app" ]] || continue
-            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || ! -f "apps/$app/app.tfvars" ]]; then
-              echo "::error::Invalid or removed application '$app': expected apps/$app/app.tfvars. App removal requires a deliberate state/resource migration."
+            if [[ ! "$app" =~ ^[a-z][a-z0-9-]*$ || "$app" == "all" || "$app" == "app-example" || ! -f "apps/$app/app.tfvars" ]]; then
+              echo "::error::Invalid or removed application '$app'; decommission resources deliberately."
               exit 1
             fi
           done < selected-apps.txt
@@ -113,7 +112,7 @@ jobs:
       run:
         shell: bash
         # Each app supplies variables to this shared Terraform root module.
-        working-directory: ecs-cicd-tutorial-infrastructure/terraform
+        working-directory: terraform-infrastructure/terraform
     steps:
       # On pull_request, the default checkout is GitHub's test merge revision.
       # Discovery uses the PR head/base SHAs, while Terraform plans the checked-out merge result.
@@ -133,13 +132,16 @@ jobs:
         run: |
           # Fail on command errors, unset variables, and failures inside pipelines such as plan | tee.
           set -euo pipefail
-          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" ]]
+          [[ "$APP" =~ ^[a-z][a-z0-9-]*$ && "$APP" != "all" && "$APP" != "app-example" ]]
           [[ -f "../apps/$APP/app.tfvars" ]]
           # Initialize providers and select this app's state in S3.
           # Provider versions are pinned in versions.tf; init generates a temporary dependency lock file.
           # Give each app its own state object in the shared S3 bucket.
           terraform init -input=false -backend-config="key=infrastructure/$APP/terraform.tfstate"
           # Check configuration consistency before attempting a plan or apply.
+          terraform fmt -check -recursive .
+          terraform fmt -check "../apps/$APP"
+          [[ "$(terraform workspace show)" == "default" ]] || { echo "::error::Use the default workspace with a per-app backend key."; exit 1; }
           terraform validate -no-color
       - name: Terraform plan
         id: plan
@@ -166,7 +168,7 @@ jobs:
           command -v gh >/dev/null || { echo "::error::Install GitHub CLI (gh) in the CodeBuild runner image."; exit 1; }
           export GH_HOST="${GH_HOST#https://}"
 
-          # This run step inherits working-directory: ecs-cicd-tutorial-infrastructure/terraform, where plan.txt was saved.
+          # This run step inherits working-directory: terraform-infrastructure/terraform, where plan.txt was saved.
           if [[ ! -f plan.txt ]]; then
             echo "No plan output. Check initialization and validation in the workflow logs." > plan.txt
           fi

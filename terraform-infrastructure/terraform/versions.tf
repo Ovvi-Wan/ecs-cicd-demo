@@ -1,12 +1,10 @@
 terraform {
-  # The pipeline supplies key through terraform init -backend-config.
   backend "s3" {
     bucket       = "ecs-cicd-tutorial-tfstate-270654520169-us-east-1"
     region       = "us-east-1"
     encrypt      = true
     use_lockfile = true
   }
-
   required_version = "= 1.16.4"
   required_providers {
     aws = {
@@ -15,15 +13,14 @@ terraform {
     }
   }
 }
-
 provider "aws" {
-  region = "us-east-1"
-
+  region = var.aws_region
   default_tags {
-    tags = {
-      Project     = "ecs-cicd-tutorial"
+    tags = merge(var.tags, {
+      Project     = var.project_prefix
       Application = var.application
+      Environment = var.environment
       ManagedBy   = "Terraform"
-    }
+    })
   }
 }

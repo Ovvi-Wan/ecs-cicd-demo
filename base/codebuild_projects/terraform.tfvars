@@ -9,7 +9,7 @@ github_connection_arn = "arn:aws:codeconnections:us-east-1:270654520169:connecti
 # Remove an entry if you only want one project. No split by operation is required.
 runner_projects = {
   infrastructure = {
-    repository = "Ovvi-Wan/ecs-cicd-tutorial-infrastructure"
+    repository = "Ovvi-Wan/ecs-cicd-demo"
   }
   application = {
     repository      = "Ovvi-Wan/ecs-cicd-tutorial-application"
