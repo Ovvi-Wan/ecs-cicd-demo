@@ -4,11 +4,13 @@ variable "repository_arn" { type = string }
 variable "log_group_arn" { type = string }
 variable "secret_enabled" { type = bool }
 variable "secret_arn" { type = string }
-variable "policies" {
-  type = map(string)
+variable "task_policy" {
+  description = "Optional application task-role policy JSON loaded by the root module."
+  type        = string
+  default     = null
   validation {
-    condition     = alltrue([for policy in values(var.policies) : can(jsondecode(policy).Statement)])
-    error_message = "Each policy must be valid JSON with a Statement field."
+    condition     = var.task_policy == null ? true : can(jsondecode(var.task_policy).Statement)
+    error_message = "The task policy must be valid JSON with a Statement field."
   }
 }
 data "aws_caller_identity" "current" {}
@@ -74,14 +76,14 @@ resource "aws_iam_role_policy" "execution" {
   policy = data.aws_iam_policy_document.execution.json
 }
 resource "aws_iam_policy" "app" {
-  for_each = var.policies
-  name     = "${var.name}-${trimsuffix(basename(each.key), ".json")}"
-  policy   = each.value
+  count  = var.task_policy == null ? 0 : 1
+  name   = "${var.name}-task-policy"
+  policy = var.task_policy
 }
 resource "aws_iam_role_policy_attachment" "app" {
-  for_each   = var.policies
+  count      = var.task_policy == null ? 0 : 1
   role       = aws_iam_role.task.name
-  policy_arn = aws_iam_policy.app[each.key].arn
+  policy_arn = aws_iam_policy.app[0].arn
 }
 resource "aws_iam_role_policy_attachment" "existing" {
   for_each   = var.config.task_managed_policy_arns

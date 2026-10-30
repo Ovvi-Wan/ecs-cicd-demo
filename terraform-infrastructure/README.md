@@ -75,9 +75,13 @@ Application SDK access requires a task-role policy.
 
 ## IAM policies
 
-Put normal AWS IAM JSON files in apps/<app>/policies/ and list them in
-`iam.task_policy_files`. Each file becomes a managed policy attached to the task
-role. No templates or placeholders are expanded. See the [policy guide](apps/app-example/policies/README.md).
+Put one AWS IAM JSON policy in apps/<app>/policies/ and set
+`iam.task_policy_file = "policies/task-policy.json"`. The root reads that file and
+passes its JSON to the IAM module as `task_policy`, creating one managed policy
+named `<project>-<environment>-<application>-task-policy` attached to the task role.
+Omit the input or set it to null when the app needs no custom policy. Use multiple
+statements within that single file for different permissions. No templates or
+placeholders are expanded. See the [policy guide](apps/app-example/policies/README.md).
 
 Execution permissions for ECR, logs and the application's secret are generated
 automatically. Optional existing managed policies and a permissions boundary are

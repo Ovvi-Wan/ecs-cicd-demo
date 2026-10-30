@@ -10,7 +10,7 @@ locals {
   state_key   = "infrastructure/${var.application}/terraform.tfstate"
   secret_name = "${var.project_prefix}/${var.environment}/${var.application}/secrets"
 
-  policies = { for filename in var.iam.task_policy_files : filename => file("${path.module}/../apps/${var.application}/${filename}") }
+  task_policy = var.iam.task_policy_file == null ? null : file("${path.module}/../apps/${var.application}/${var.iam.task_policy_file}")
 }
 module "ecr" {
   source = "./modules/ecr"
@@ -25,7 +25,7 @@ module "iam" {
   log_group_arn  = module.ecs.log_group_arn
   secret_enabled = var.secret.create
   secret_arn     = module.ecs.secret_arn
-  policies       = local.policies
+  task_policy    = local.task_policy
 }
 
 module "ecs" {

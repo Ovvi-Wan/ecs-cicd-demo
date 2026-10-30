@@ -1,17 +1,19 @@
 # Application IAM policies
 
 1. Write a normal AWS IAM JSON policy in this folder.
-2. List it in app.tfvars:
+2. Set its path in app.tfvars:
 
 ```hcl
 iam = {
-  task_policy_files = ["policies/task-policy.json"]
+  task_policy_file = "policies/task-policy.json"
 }
 ```
 
-Terraform reads the file directly, creates one managed policy per file, and attaches
-it to the application task role. Files not listed are not attached. Multiple files
-are supported. The example permits reading objects under an S3 bucket prefix;
+Terraform reads the single file directly, passes its JSON to the IAM module, creates
+one managed policy, and attaches it to the application task role. Omit
+`task_policy_file` or set it to null to create no custom app policy. Files are not
+attached automatically. Combine permissions using multiple statements in this file.
+The example permits reading objects under an S3 bucket prefix;
 replace the bucket and prefix with your application's actual resources.
 
 There are no Terraform templates, injected variables, or special placeholders.
@@ -28,5 +30,5 @@ Optional iam.task_managed_policy_arns attaches policies that already exist.
 iam.permissions_boundary_arn applies an existing boundary to both task roles.
 A boundary limits permissions but does not grant them.
 
-If migrating old template policies, replace their Terraform placeholders with actual
-ARNs before planning. Policy filenames/managed-policy addresses remain unchanged.
+The managed policy is named `<project>-<environment>-<application>-task-policy`,
+independent of the filename. The input accepts one string path, not a list.

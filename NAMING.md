@@ -16,7 +16,7 @@ existing 46-character limit on `app`; individual services have their own limits.
 | ECS service and task-definition family | `app` |
 | ECS container | `app` literal by default; keep stable across deployments |
 | Task execution role / task role | `app-execution` / `app-task` |
-| Managed task policy | `app-<policy-file-stem>` |
+| Managed task policy | `app-task-policy` |
 | Inline IAM policy | Purpose within its owning role, e.g. `task-startup` |
 | ECS log group | `/ecs/app` |
 | Task security group | `app-task-<generated suffix>`, Name tag `app-task-sg` |

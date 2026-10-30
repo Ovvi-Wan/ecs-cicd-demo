@@ -230,18 +230,18 @@ variable "ecr" {
 }
 variable "iam" {
   type = object({
-    task_policy_files        = optional(set(string), [])
+    task_policy_file         = optional(string)
     task_managed_policy_arns = optional(set(string), [])
     permissions_boundary_arn = optional(string)
   })
   default = {}
   validation {
-    condition     = alltrue([for p in var.iam.task_policy_files : can(regex("^policies/[a-zA-Z0-9_-]+\\.json$", p))])
-    error_message = "Policy paths must be policies/filename.json relative to apps/<application> (no traversal)."
+    condition     = var.iam.task_policy_file == null ? true : can(regex("^policies/[a-zA-Z0-9_-]+\\.json$", var.iam.task_policy_file))
+    error_message = "task_policy_file must be policies/filename.json relative to apps/<application> (no traversal), or null to omit the app policy."
   }
 }
 variable "secret" {
-  description = "Create secret metadata only. Default name: <project>/<environment>/<application>/secrets. name is an explicit legacy/integration override; values and injection are managed separately."
+  description = "Create secret metadata only. Default name: <project>/<environment>/<application>/secrets. values and injection are managed separately."
   type = object({
     create                  = optional(bool, true)
     name                    = optional(string)

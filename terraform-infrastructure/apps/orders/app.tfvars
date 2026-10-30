@@ -15,4 +15,4 @@ load_balancer = {
 # Shared defaults: one task, 256 CPU / 512 MiB, included 20 GiB, /health,
 # private subnets, app secret metadata, and CPU/memory alarms.
 # TG 5xx is enabled because lb_enabled=true. Override settings only when needed.
-# Add app IAM files through iam.task_policy_files; defaults attach no app policies.
+# Set iam.task_policy_file to one JSON policy path; omit for no app policy.

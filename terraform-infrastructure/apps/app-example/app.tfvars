@@ -93,9 +93,9 @@ ecr = {
   force_delete    = false    # Keep false to avoid deleting non-empty repository accidentally.
 }
 iam = {
-  task_policy_files        = ["policies/task-policy.json"] # Plain JSON files relative to this app directory; no template substitutions.
-  task_managed_policy_arns = []                            # Existing customer/AWS managed policies for task role.
-  permissions_boundary_arn = null                          # Existing boundary applied to execution AND task roles.
+  task_policy_file         = "policies/task-policy.json" # One JSON file relative to this app directory; null or omitted for no app policy.
+  task_managed_policy_arns = []                          # Existing customer/AWS managed policies for task role.
+  permissions_boundary_arn = null                        # Existing boundary applied to execution AND task roles.
 }
 secret = {
   create                  = true # Secret metadata only. No secret version/value is managed by Terraform.
