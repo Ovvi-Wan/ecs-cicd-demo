@@ -12,7 +12,7 @@ runner_projects = {
     repository = "Ovvi-Wan/ecs-cicd-demo"
   }
   application = {
-    repository      = "Ovvi-Wan/ecs-cicd-tutorial-application"
+    repository      = "Ovvi-Wan/ecs-cicd-demo"
     privileged_mode = true # Container image builds; omit if not needed.
   }
 }

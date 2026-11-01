@@ -7,7 +7,7 @@ releases register task definitions and update the existing service.
 
 ## Layout
 
-- [base/](base/README.md): state bucket, CodeBuild runner roles/projects, VPC and optional shared ECS cluster.
+- [base/](base/README.md): state bucket, CodeBuild runner roles/projects, VPC, shared ALB and optional shared ECS cluster.
 - [terraform-infrastructure/](terraform-infrastructure/README.md): shared Terraform root, modules and per-app inputs.
 - [app-example](terraform-infrastructure/apps/app-example/app.tfvars): every supported option with comments and IAM policy examples. Never selected by workflows.
 - [.github/workflows/](.github/workflows/README.md): disabled PR, post-merge and manual all-app workflows.
@@ -23,6 +23,8 @@ this implementation. Removing the suffix activates workflows; review setup first
 
 1. Verify/provision the state bucket and network foundation. If necessary create
    [base/ecs_cluster](base/ecs_cluster/README.md) once; apps only read that cluster.
+   For ALB-enabled apps, provision [base/alb](base/alb/README.md) after the network
+   and use its ALB name in the selected app configuration.
 2. Review/apply base/codebuild_projects changes separately: infrastructure SNS and
    IAM-boundary permissions, application ECS deployment permissions, 35-minute
    runner timeout, and infrastructure repository mapping to Ovvi-Wan/ecs-cicd-demo.

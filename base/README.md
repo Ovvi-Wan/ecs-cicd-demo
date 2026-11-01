@@ -1,6 +1,6 @@
 # Base infrastructure
 
-Four standalone Terraform roots in the monorepo. They are not child modules of
+Five standalone Terraform roots in the monorepo. They are not child modules of
 application infrastructure, and the app workflows do not apply them.
 
 | Root | Responsibility | Existing backend key |
@@ -8,12 +8,15 @@ application infrastructure, and the app workflows do not apply them.
 | s3_state_bucket | State bucket and access/encryption/versioning policies | base/s3_state_bucket/terraform.tfstate |
 | codebuild_projects | Runner projects, IAM policies, logs and webhooks | base/codebuild_projects/terraform.tfstate |
 | network_infrastructure | VPC, subnets and one NAT gateway per AZ | base/network_infrastructure/dev/terraform.tfstate |
+| ecs_cluster | Shared ECS cluster | base/ecs_cluster/dev/terraform.tfstate |
+| alb | Shared internet-facing ALB and HTTP listener | base/alb/dev/terraform.tfstate |
 
 ## Bootstrap order
 
 Use an approved bootstrap execution environment with AWS credentials independent
 of the runner projects being provisioned. No workstation Terraform setup is required.
 Verify/create the bucket first; CodeBuild and network roots can follow independently.
+Create [the ALB](alb/README.md) after the network, before planning ALB-enabled apps.
 Review saved plans before apply. The current versions.tf files have ACTIVE S3
 backends. For a brand-new account without the bucket, follow the state-bucket
 README bootstrap procedure first. A runner cannot create itself before it exists.

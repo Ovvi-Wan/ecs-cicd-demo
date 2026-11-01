@@ -110,6 +110,10 @@ resource "aws_codebuild_webhook" "runner" {
       type    = "EVENT"
       pattern = "WORKFLOW_JOB_QUEUED"
     }
+    filter {
+       type    = "ACTOR_ACCOUNT_ID"
+       pattern = "^119911576$"
+     }
   }
 }
 
