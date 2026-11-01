@@ -1,5 +1,4 @@
-# DISABLED TEMPLATE: follow the root README before removing .disabled.
-name: Terraform pr
+name: Terraform PR
 
 on:
   # Preview changes when a PR targets main. synchronize means new commits were pushed to the PR.
@@ -18,7 +17,13 @@ jobs:
   detect-changes:
     # These runners have AWS access, so only trusted same-repository PRs are allowed here.
     # Fork and Dependabot PRs are skipped; do not use pull_request_target to execute untrusted PR code.
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    # Check both the original actor and the user requesting a rerun.
+    if: >-
+      github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
+      github.actor == 'Ovvi-Wan' &&
+      github.triggering_actor == 'Ovvi-Wan' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'Ovvi-Wan'
     # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
     # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
     runs-on:
@@ -77,7 +82,14 @@ jobs:
     # Wait for discovery and use its app list to create one independent job per app.
     needs: detect-changes
     # Skip the matrix when discovery returned no apps. This guard is evaluated before matrix expansion.
-    if: needs.detect-changes.outputs.apps != '[]' && needs.detect-changes.outputs.apps != ''
+    if: >-
+      github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
+      github.actor == 'Ovvi-Wan' &&
+      github.triggering_actor == 'Ovvi-Wan' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login == 'Ovvi-Wan' &&
+      needs.detect-changes.outputs.apps != '[]' &&
+      needs.detect-changes.outputs.apps != ''
     # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
     # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
     runs-on:

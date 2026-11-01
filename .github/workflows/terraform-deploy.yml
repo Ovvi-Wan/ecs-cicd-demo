@@ -1,5 +1,4 @@
-# DISABLED TEMPLATE: follow the root README before removing .disabled.
-name: Terraform plan and approved apply
+name: Terraform deploy
 
 on:
   # A merge produces a push to main. Direct pushes to main also trigger this workflow.
@@ -15,7 +14,12 @@ permissions:
 jobs:
   # Job 1 discovers app names before GitHub expands the matrix in Job 2.
   detect-changes:
-    if: github.ref == 'refs/heads/main'
+    # Check both the original actor and the user requesting a rerun.
+    if: >-
+      github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'Ovvi-Wan' &&
+      github.triggering_actor == 'Ovvi-Wan'
     # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
     # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
     runs-on:
@@ -74,7 +78,13 @@ jobs:
     # Wait for discovery and use its app list to create one independent job per app.
     needs: detect-changes
     # Skip the matrix when discovery returned no apps. This guard is evaluated before matrix expansion.
-    if: needs.detect-changes.outputs.apps != '[]' && needs.detect-changes.outputs.apps != ''
+    if: >-
+      github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'Ovvi-Wan' &&
+      github.triggering_actor == 'Ovvi-Wan' &&
+      needs.detect-changes.outputs.apps != '[]' &&
+      needs.detect-changes.outputs.apps != ''
     # Use the existing AWS CodeBuild runner project; adapt its name for your repository.
     # The run ID and attempt identify this workflow execution. AWS credentials come from CodeBuild.
     runs-on:
@@ -182,6 +192,10 @@ jobs:
     # Configure required reviewers on every app environment BEFORE enabling deployments.
     # Keep ENABLE_DEPLOYMENTS unset until setup is complete; a public repo alone is not approval.
     if: >-
+      github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
+      github.ref == 'refs/heads/main' &&
+      github.actor == 'Ovvi-Wan' &&
+      github.triggering_actor == 'Ovvi-Wan' &&
       github.event.repository.private == false &&
       vars.ENABLE_DEPLOYMENTS == 'true' &&
       needs.detect-changes.outputs.apps != '[]' &&

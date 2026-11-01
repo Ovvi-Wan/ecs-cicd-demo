@@ -10,16 +10,17 @@ releases register task definitions and update the existing service.
 - [base/](base/README.md): state bucket, CodeBuild runner roles/projects, VPC, shared ALB and optional shared ECS cluster.
 - [terraform-infrastructure/](terraform-infrastructure/README.md): shared Terraform root, modules and per-app inputs.
 - [app-example](terraform-infrastructure/apps/app-example/app.tfvars): every supported option with comments and IAM policy examples. Never selected by workflows.
-- [.github/workflows/](.github/workflows/README.md): disabled PR, post-merge and manual all-app workflows.
+- [.github/workflows/](.github/workflows/README.md): PR plans and post-merge infrastructure deployment; manual all-app template remains disabled.
 
 The previous misspelled terraform-infrastucture directory was renamed. State keys
 remain infrastructure/<app>/terraform.tfstate. CodeBuild runner project names
 remain unchanged, so existing runner labels still work.
 
-## Before enabling automation
+## Automation setup
 
-All workflow templates still end in .yml.disabled. No AWS apply was run as part of
-this implementation. Removing the suffix activates workflows; review setup first.
+`terraform-pr.yml` and `terraform-deploy.yml` are enabled in source. They select
+apps affected by PRs targeting main and pushes to main, respectively. The manual
+workflow remains `.yml.disabled`. No AWS apply was run as part of this implementation.
 
 1. Verify/provision the state bucket and network foundation. If necessary create
    [base/ecs_cluster](base/ecs_cluster/README.md) once; apps only read that cluster.
@@ -38,7 +39,7 @@ this implementation. Removing the suffix activates workflows; review setup first
    before activation. Do not create an app-example environment.
 5. Runner tools: bash, git, jq, AWS CLI, gh, GNU date and sha256sum. Workflows install
    Terraform 1.16.4 with AWS provider 6.61.0. Run formatting and validation as documented in the infrastructure guide.
-6. Remove .disabled when ready to run plans. Leave ENABLE_DEPLOYMENTS unset for
+6. Commit and push the enabled PR/deploy workflows. Leave ENABLE_DEPLOYMENTS unset for
    plans only; set it to true only after approval environments are configured.
 
 App policy files and tfvars must contain no secret values. Saved binary plans and

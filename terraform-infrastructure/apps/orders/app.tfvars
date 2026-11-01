@@ -9,8 +9,8 @@ network = {
 container_port = 3000
 lb_enabled     = true # false for applications without an ALB.
 load_balancer = {
-  existing_name = "replace-with-existing-alb" # Set the real ALB name before planning.
-  rules         = { app = { priority = 200, path_patterns = ["/orders/*"] } }
+  existing_name = "ecs-cicd-tutorial-dev-alb"
+  rules         = { app = { priority = 200, path_patterns = ["/orders", "/orders/*"] } }
 }
 # Shared defaults: one task, 256 CPU / 512 MiB, included 20 GiB, /health,
 # private subnets, app secret metadata, and CPU/memory alarms.
