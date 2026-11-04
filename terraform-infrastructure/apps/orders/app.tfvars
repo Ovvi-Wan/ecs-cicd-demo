@@ -15,8 +15,8 @@ load_balancer = {
 
 monitoring = {
   enabled                       = true # Creates SNS topic + alarms, no subscriptions or Container Insights.
-  cpu_threshold                 = 80   # Percent. CPU/memory use Average.
-  memory_threshold              = 80
+  cpu_threshold                 = 81   # Percent. CPU/memory use Average.
+  memory_threshold              = 81
   target_5xx_threshold          = 5  # Per-period Sum for this TG; created only when lb_enabled=true.
   period                        = 60 # Seconds; multiple of 60.
   evaluation_periods            = 3
