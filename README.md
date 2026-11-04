@@ -1,7 +1,7 @@
 # ECS CI/CD demo
 
 Reusable per-application AWS ECS Fargate infrastructure with separate Terraform
-state and approval for each application. Application builds/deployments are a
+state for each application and a shared deployment approval gate. Application builds/deployments are a
 separate pipeline: infrastructure starts a public HTTP placeholder, then image
 releases register task definitions and update the existing service.
 
@@ -33,14 +33,17 @@ workflow remains `.yml.disabled`. No AWS apply was run as part of this implement
    application repository mapping is retained; change it if your app sources move.
 3. Review billing/orders tfvars. Defaults select the base dev VPC by Name and
    subnets by Tier tags, and cluster ecs-cicd-tutorial-dev. No invented VPC IDs.
-4. Configure GitHub environments named billing and orders with required reviewers
+4. Configure one GitHub environment named terraform-apply with required reviewers
    and main-only deployment branches. The existing workflow templates retain their
    public-repository approval guard. Review GitHub plan support for your repository
-   before activation. Do not create an app-example environment.
+   before activation. New apps automatically use this shared approval gate.
+   Allow self-review to approve your own pushes; disable administrator bypass.
 5. Runner tools: bash, git, jq, AWS CLI, gh, GNU date and sha256sum. Workflows install
    Terraform 1.16.4 with AWS provider 6.61.0. Run formatting and validation as documented in the infrastructure guide.
 6. Commit and push the enabled PR/deploy workflows. Leave ENABLE_DEPLOYMENTS unset for
-   plans only; set it to true only after approval environments are configured.
+   plans only. After configuring the shared required reviewers, set repository Actions
+   variables ENABLE_DEPLOYMENTS=true and TERRAFORM_APPROVAL_READY=true. Both are required.
+   Review all selected app plans before approving terraform-apply in Review deployments.
 
 App policy files and tfvars must contain no secret values. Saved binary plans and
 Terraform outputs may contain environment variables: only put

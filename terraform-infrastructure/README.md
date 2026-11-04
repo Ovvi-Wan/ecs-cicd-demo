@@ -163,7 +163,10 @@ because AWS only publishes nonzero error counts; absence does not imply an outag
 Both missing-data policies are configurable. No dedicated task-count alerts,
 Container Insights or SNS subscriptions are configured.
 
-Workflows remain .yml.disabled; follow ../README.md for activation and approval setup.
+PR/deploy workflows are enabled; follow ../README.md for approval setup.
+Review each app plan in the GitHub Actions run Summary, then approve or reject
+the shared terraform-apply environment using Review deployments. All current and
+future apps use this same approval gate; review all selected plans before approving.
 App selection is inline in the GitHub workflows. Shared Terraform changes select all real apps; app policy/tfvars changes select that
 app. app-example is always excluded. Deleted apps require deliberate decommissioning.
 Apply uses the approved saved plan, verifies its checksum/age and rejects a newer main

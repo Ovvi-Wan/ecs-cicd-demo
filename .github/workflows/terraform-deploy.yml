@@ -171,8 +171,21 @@ jobs:
             echo "### Review plan for $APP"
             echo "Commit: $GITHUB_SHA"
             echo "Plan run ID: $GITHUB_RUN_ID; attempt: $GITHUB_RUN_ATTEMPT"
-            echo "Download the plan artifact and review plan.txt before approving."
-            echo "When deployments are enabled, use Review deployments on this run and approve the $APP environment."
+            echo "Review the proposed changes below before approving the shared terraform-apply environment."
+            echo "Approve to apply this saved plan, or reject to stop deployment."
+            echo ""
+            # Bound the preview below GitHub's summary limit; keep the complete plan in logs/artifacts.
+            if [[ $(wc -c < plan.txt) -gt 150000 ]]; then
+              echo "Plan preview truncated. Review the full Terraform plan step log or plan.txt artifact before approving."
+              echo ""
+            fi
+            # Escape HTML so Terraform values cannot alter the summary markup.
+            echo '<pre>'
+            head -c 150000 plan.txt | sed -e 's/\&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+            echo ""
+            echo '</pre>'
+            echo ""
+            echo "When deployments are enabled, use Review deployments on this run and approve terraform-apply after reviewing all selected app plans."
             echo "On GitHub Free this approval feature works only for public repositories."
             echo "Plans expire after 24 hours. A newer main commit requires a new plan."
           } >> "$GITHUB_STEP_SUMMARY"
@@ -189,8 +202,9 @@ jobs:
     name: Apply ${{ matrix.app }} after approval
     needs: [detect-changes, plan]
     # On GitHub Free, required-reviewer approvals work ONLY in PUBLIC repositories.
-    # Configure required reviewers on every app environment BEFORE enabling deployments.
-    # Keep ENABLE_DEPLOYMENTS unset until setup is complete; a public repo alone is not approval.
+    # Configure required reviewers once on terraform-apply for all current and future apps.
+    # Set TERRAFORM_APPROVAL_READY only after configuring that shared environment.
+    # This separate switch prevents an existing ENABLE_DEPLOYMENTS=true from bypassing setup.
     if: >-
       github.repository == 'Ovvi-Wan/ecs-cicd-demo' &&
       github.ref == 'refs/heads/main' &&
@@ -198,6 +212,7 @@ jobs:
       github.triggering_actor == 'Ovvi-Wan' &&
       github.event.repository.private == false &&
       vars.ENABLE_DEPLOYMENTS == 'true' &&
+      vars.TERRAFORM_APPROVAL_READY == 'true' &&
       needs.detect-changes.outputs.apps != '[]' &&
       needs.detect-changes.outputs.apps != ''
     strategy:
@@ -205,10 +220,10 @@ jobs:
       matrix:
         app: ${{ fromJSON(needs.detect-changes.outputs.apps) }}
     # This is GitHub's built-in approval gate, not a third-party action.
-    # Each app has its own environment (billing, orders, etc.) and approval decision.
+    # All apps share one approval policy. Review all selected plans before approval.
     # GitHub waits for approval BEFORE sending this job to a CodeBuild runner.
     environment:
-      name: ${{ matrix.app }}
+      name: terraform-apply
       url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     runs-on:
       - codebuild-ecs-cicd-tutorial-infrastructure-${{ github.run_id }}-${{ github.run_attempt }}
