@@ -270,7 +270,7 @@ variable "logging" {
 }
 variable "monitoring" {
   type = object({
-    enabled                       = optional(bool, true)
+    enabled                       = optional(bool, false)
     cpu_threshold                 = optional(number, 80)
     memory_threshold              = optional(number, 80)
     target_5xx_threshold          = optional(number, 5)

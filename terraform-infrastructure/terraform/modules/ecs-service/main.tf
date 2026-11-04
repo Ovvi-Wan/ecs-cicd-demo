@@ -125,9 +125,9 @@ resource "aws_ecs_service" "fixed" {
     }
   }
   timeouts {
-    create = "20m"
-    update = "20m"
-    delete = "20m"
+    create = "5m"
+    update = "5m"
+    delete = "5m"
   }
   depends_on = [aws_lb_listener_rule.app, aws_vpc_security_group_ingress_rule.alb, aws_vpc_security_group_ingress_rule.extra, aws_vpc_security_group_egress_rule.task]
 }
@@ -178,9 +178,9 @@ resource "aws_ecs_service" "scaled" {
     }
   }
   timeouts {
-    create = "20m"
-    update = "20m"
-    delete = "20m"
+    create = "5m"
+    update = "5m"
+    delete = "5m"
   }
   depends_on = [aws_lb_listener_rule.app, aws_vpc_security_group_ingress_rule.alb, aws_vpc_security_group_ingress_rule.extra, aws_vpc_security_group_egress_rule.task]
 }
